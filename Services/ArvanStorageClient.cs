@@ -109,7 +109,8 @@ public sealed class ArvanStorageClient : IArvanStorageClient
                     ContinuationToken = token
                 }, cancellationToken);
 
-                objects.AddRange(response.S3Objects.Select(item =>
+                var responseObjects = response.S3Objects ?? [];
+                objects.AddRange(responseObjects.Select(item =>
                     new ArvanObjectInfo(item.Key, item.Size.GetValueOrDefault(), item.LastModified)));
                 token = response.NextContinuationToken;
             }
@@ -257,5 +258,6 @@ file sealed class CompositeDisposable(params IDisposable[] disposables) : IDispo
         }
     }
 }
+
 
 
