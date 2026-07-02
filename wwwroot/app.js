@@ -8,7 +8,8 @@ const state = {
   busy: false,
   shuffle: false,
   repeatMode: 'none',
-  selectedIds: new Set()
+  selectedIds: new Set(),
+  deleting: false
 };
 
 const audio = document.querySelector('#audio');
@@ -46,8 +47,13 @@ const confirmTitle = document.querySelector('#confirmTitle');
 const confirmMessage = document.querySelector('#confirmMessage');
 const confirmAccept = document.querySelector('#confirmAccept');
 const confirmCancel = document.querySelector('#confirmCancel');
+const selectionActions = document.querySelector('#selectionActions');
 const selectionCount = document.querySelector('#selectionCount');
+const selectAllBtn = document.querySelector('#selectAllBtn');
+const cancelSelectionBtn = document.querySelector('#cancelSelectionBtn');
 const deleteSelectedBtn = document.querySelector('#deleteSelectedBtn');
+const deleteProgress = document.querySelector('#deleteProgress');
+const deleteProgressText = document.querySelector('#deleteProgressText');
 const Icons = {
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>',
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>',
@@ -129,6 +135,8 @@ function bindEvents() {
   prevBtn.addEventListener('click', () => playRelative(-1));
   nextBtn.addEventListener('click', () => playRelative(1));
   repeatBtn.addEventListener('click', cycleRepeatMode);
+  selectAllBtn.addEventListener('click', selectAllVisibleTracks);
+  cancelSelectionBtn.addEventListener('click', clearSelectionAndRender);
   deleteSelectedBtn.addEventListener('click', deleteSelectedTracks);
   volume.addEventListener('input', () => {
     audio.volume = Number(volume.value);
@@ -713,6 +721,20 @@ function clearSelection() {
   renderSelectionState();
 }
 
+function clearSelectionAndRender() {
+  clearSelection();
+  renderTracks();
+}
+
+function selectAllVisibleTracks() {
+  if (state.deleting) {
+    return;
+  }
+
+  state.filtered.forEach(track => state.selectedIds.add(track.id));
+  renderTracks();
+}
+
 function pruneSelection() {
   const availableIds = new Set(state.tracks.map(track => track.id));
   [...state.selectedIds].forEach(id => {
@@ -724,16 +746,39 @@ function pruneSelection() {
 
 function renderSelectionState() {
   const count = state.selectedIds.size;
+  const visibleCount = state.filtered.length;
+  const hasSelection = count > 0;
+  if (selectionActions) {
+    selectionActions.hidden = !hasSelection && !state.deleting;
+  }
+
   if (selectionCount) {
     selectionCount.textContent = `${count} selected`;
   }
 
+  if (selectAllBtn) {
+    selectAllBtn.hidden = !hasSelection;
+    selectAllBtn.disabled = state.deleting || visibleCount === 0 || count >= visibleCount;
+    selectAllBtn.setAttribute('aria-disabled', String(selectAllBtn.disabled));
+  }
+
+  if (cancelSelectionBtn) {
+    cancelSelectionBtn.hidden = !hasSelection;
+    cancelSelectionBtn.disabled = state.deleting;
+    cancelSelectionBtn.setAttribute('aria-disabled', String(cancelSelectionBtn.disabled));
+  }
+
   if (deleteSelectedBtn) {
-    deleteSelectedBtn.disabled = count === 0;
-    deleteSelectedBtn.setAttribute('aria-disabled', String(count === 0));
+    const disabled = count === 0 || state.deleting;
+    deleteSelectedBtn.disabled = disabled;
+    deleteSelectedBtn.setAttribute('aria-disabled', String(disabled));
   }
 }
 async function handleDeleteAction(id) {
+  if (state.deleting) {
+    return;
+  }
+
   const track = state.tracks.find(item => item.id === id);
   if (!track) {
     return;
@@ -757,16 +802,25 @@ async function removeFromPlaylist(trackId, title) {
     return;
   }
 
-  const response = await fetch(`/api/playlists/${state.view.playlistId}/tracks/${trackId}`, { method: 'DELETE' });
-  if (response.ok) {
-    const playlist = await response.json();
-    upsertPlaylist(playlist);
-    renderPlaylists();
-    renderTracks();
+  showDeleteProgress('Removing from playlist...');
+  try {
+    const response = await fetch(`/api/playlists/${state.view.playlistId}/tracks/${trackId}`, { method: 'DELETE' });
+    if (response.ok) {
+      const playlist = await response.json();
+      upsertPlaylist(playlist);
+      renderPlaylists();
+      renderTracks();
+    }
+  } finally {
+    hideDeleteProgress();
   }
 }
 
 async function deleteSelectedTracks() {
+  if (state.deleting) {
+    return;
+  }
+
   const ids = [...state.selectedIds];
   if (ids.length === 0) {
     return;
@@ -781,20 +835,29 @@ async function deleteSelectedTracks() {
     return;
   }
 
-  const response = await fetch('/api/tracks/delete', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ trackIds: ids })
-  });
+  showDeleteProgress(`Deleting ${ids.length} ${ids.length === 1 ? 'track' : 'tracks'}...`);
+  try {
+    const response = await fetch('/api/tracks/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trackIds: ids })
+    });
 
-  if (response.ok) {
-    const result = await response.json();
-    const deletedIds = new Set(result.deletedIds || ids);
-    removeDeletedTracksFromState(deletedIds);
-    await loadStorageUsage();
+    if (response.ok) {
+      const result = await response.json();
+      const deletedIds = new Set(result.deletedIds || ids);
+      removeDeletedTracksFromState(deletedIds);
+      await loadStorageUsage();
+    }
+  } finally {
+    hideDeleteProgress();
   }
 }
 async function deleteTrack(id, title) {
+  if (state.deleting) {
+    return;
+  }
+
   const confirmed = await showConfirmDialog({
     title: 'Delete track?',
     message: `Delete "${title}" from CloudBeat and all playlists?`,
@@ -804,11 +867,35 @@ async function deleteTrack(id, title) {
     return;
   }
 
-  const response = await fetch(`/api/tracks/${id}`, { method: 'DELETE' });
-  if (response.ok) {
-    removeDeletedTracksFromState(new Set([id]));
-    await loadStorageUsage();
+  showDeleteProgress('Deleting track...');
+  try {
+    const response = await fetch(`/api/tracks/${id}`, { method: 'DELETE' });
+    if (response.ok) {
+      removeDeletedTracksFromState(new Set([id]));
+      await loadStorageUsage();
+    }
+  } finally {
+    hideDeleteProgress();
   }
+}
+
+function showDeleteProgress(message) {
+  state.deleting = true;
+  if (deleteProgress) {
+    deleteProgress.hidden = false;
+  }
+  if (deleteProgressText) {
+    deleteProgressText.textContent = message || 'Deleting...';
+  }
+  renderSelectionState();
+}
+
+function hideDeleteProgress() {
+  state.deleting = false;
+  if (deleteProgress) {
+    deleteProgress.hidden = true;
+  }
+  renderSelectionState();
 }
 
 function removeDeletedTracksFromState(deletedIds) {

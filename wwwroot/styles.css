@@ -252,6 +252,10 @@ h1 {
   justify-content: flex-end;
 }
 
+.selection-actions[hidden] {
+  display: none;
+}
+
 .selection-actions button {
   min-height: 38px;
   border-radius: 999px;
@@ -270,6 +274,46 @@ h1 {
 .selection-actions button:disabled {
   cursor: not-allowed;
   opacity: .42;
+}
+
+.selection-actions button[hidden] {
+  display: none;
+}
+.delete-progress {
+  display: grid;
+  grid-template-columns: auto minmax(110px, 180px);
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  color: var(--muted);
+  font-size: .84rem;
+}
+
+.delete-progress[hidden] {
+  display: none;
+}
+
+.delete-progress-bar {
+  position: relative;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: #0d1012;
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+
+.delete-progress-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 46%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--coral), var(--green));
+  animation: delete-progress-slide 1s ease-in-out infinite;
+}
+
+@keyframes delete-progress-slide {
+  0% { transform: translateX(-105%); }
+  100% { transform: translateX(225%); }
 }
 
 .track-grid {
@@ -619,6 +663,11 @@ label {
 
   .selection-actions {
     justify-content: flex-start;
+  }
+
+  .delete-progress {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .signal-bars {
