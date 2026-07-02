@@ -1,11 +1,22 @@
-﻿using Musicdoni.Models;
+using Musicdoni.Models;
 using Musicdoni.Services;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
 
+const long MaxUploadBytes = 4L * 1024 * 1024 * 1024;
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = MaxUploadBytes;
+});
+builder.Services.Configure<IISServerOptions>(options =>
+{
+    options.MaxRequestBodySize = MaxUploadBytes;
+});
 builder.Services.Configure<ArvanStorageOptions>(
     builder.Configuration.GetSection(ArvanStorageOptions.SectionName));
 builder.Services.AddSingleton<IArvanStorageClient, ArvanStorageClient>();
@@ -34,6 +45,31 @@ app.MapGet("/api/status", (IOptions<ArvanStorageOptions> storageOptions) =>
     });
 });
 
+
+app.MapGet("/api/storage/usage", async (
+    IArvanStorageClient storage,
+    IOptions<ArvanStorageOptions> storageOptions,
+    CancellationToken cancellationToken) =>
+{
+    var options = storageOptions.Value;
+    if (!IsStorageConfigured(options))
+    {
+        return Results.Ok(new StorageUsageResponse(false, 0, 0, options.StorageLimitBytes, null));
+    }
+
+    try
+    {
+        var objects = await storage.ListObjectsAsync(null, cancellationToken);
+        var usedBytes = objects.Sum(item => item.Size);
+        var limitBytes = options.StorageLimitBytes is > 0 ? options.StorageLimitBytes : null;
+        long? availableBytes = limitBytes is null ? null : Math.Max(limitBytes.Value - usedBytes, 0);
+        return Results.Ok(new StorageUsageResponse(true, usedBytes, objects.Count, limitBytes, availableBytes));
+    }
+    catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
+    {
+        return Results.Json(new ProblemDetailsDto(exception.Message), statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
 app.MapGet("/api/tracks", async (IMusicCatalog catalog, CancellationToken cancellationToken) =>
 {
     var library = await catalog.GetLibraryAsync(cancellationToken);
@@ -91,6 +127,58 @@ app.MapPost("/api/tracks", async (
     return Results.Created($"/api/tracks/{track.Id}", track);
 });
 
+
+app.MapPost("/api/tracks/bulk", async (
+    HttpRequest request,
+    IMusicCatalog catalog,
+    CancellationToken cancellationToken) =>
+{
+    if (!request.HasFormContentType)
+    {
+        return Results.BadRequest(new ProblemDetailsDto("Upload must use multipart/form-data."));
+    }
+
+    var form = await request.ReadFormAsync(cancellationToken);
+    var audioFiles = form.Files.GetFiles("audio").Where(file => file.Length > 0).ToList();
+    if (audioFiles.Count == 0)
+    {
+        return Results.BadRequest(new ProblemDetailsDto("Choose one or more audio files to upload."));
+    }
+
+    var artist = ReadField(form, "artist", "Unknown Artist");
+    var album = ReadField(form, "album", "Singles");
+    var genre = ReadField(form, "genre", "Music");
+    var tracks = new List<Track>();
+
+    try
+    {
+        foreach (var audio in audioFiles)
+        {
+            await using var audioStream = audio.OpenReadStream();
+            var title = Path.GetFileNameWithoutExtension(audio.FileName);
+            tracks.Add(await catalog.AddTrackAsync(
+                new TrackUpload(
+                    string.IsNullOrWhiteSpace(title) ? "Untitled track" : title,
+                    artist,
+                    album,
+                    genre,
+                    audio.FileName,
+                    audio.ContentType,
+                    audioStream,
+                    audio.Length,
+                    null,
+                    null,
+                    null),
+                cancellationToken));
+        }
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.Json(new ProblemDetailsDto(exception.Message), statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    return Results.Created("/api/tracks", tracks);
+});
 app.MapGet("/api/tracks/{id:guid}", async (
     Guid id,
     IMusicCatalog catalog,
@@ -205,6 +293,20 @@ app.MapDelete("/api/tracks/{id:guid}", async (
     return deleted ? Results.NoContent() : Results.NotFound();
 });
 
+app.MapDelete("/api/tracks/delete", async (
+    [FromBody] BulkDeleteTracksRequest request,
+    IMusicCatalog catalog,
+    CancellationToken cancellationToken) =>
+{
+    if (request.TrackIds is null || request.TrackIds.Length == 0)
+    {
+        return Results.BadRequest(new ProblemDetailsDto("Choose at least one track to delete."));
+    }
+
+    var deletedIds = await catalog.DeleteTracksAsync(request.TrackIds, cancellationToken);
+    return Results.Ok(new BulkDeleteTracksResponse(deletedIds));
+});
+
 app.MapGet("/api/playlists", async (IMusicCatalog catalog, CancellationToken cancellationToken) =>
 {
     var library = await catalog.GetLibraryAsync(cancellationToken);
@@ -258,6 +360,14 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
+static bool IsStorageConfigured(ArvanStorageOptions options)
+{
+    return !string.IsNullOrWhiteSpace(options.Endpoint)
+        && !string.IsNullOrWhiteSpace(options.Region)
+        && !string.IsNullOrWhiteSpace(options.BucketName)
+        && !string.IsNullOrWhiteSpace(options.AccessKey)
+        && !string.IsNullOrWhiteSpace(options.SecretKey);
+}
 static string ReadField(IFormCollection form, string name, string fallback)
 {
     var value = form[name].ToString();
@@ -382,9 +492,16 @@ static string CreateSafeFileName(Track track)
         ? $"track{extension}"
         : $"{safeTitle}{extension}";
 }
+public sealed record StorageUsageResponse(bool Configured, long UsedBytes, int ObjectCount, long? LimitBytes, long? AvailableBytes);
 public sealed record StreamTokenResponse(string Token, int ExpiresInSeconds);
+public sealed record BulkDeleteTracksRequest(Guid[] TrackIds);
+public sealed record BulkDeleteTracksResponse(IReadOnlyList<Guid> DeletedIds);
 public sealed record PlaylistRequest(string Name);
 public sealed record ProblemDetailsDto(string Message);
+
+
+
+
 
 
 

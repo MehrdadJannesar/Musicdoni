@@ -1,4 +1,4 @@
-﻿const state = {
+const state = {
   tracks: [],
   filtered: [],
   playlists: [],
@@ -7,7 +7,8 @@
   view: { type: 'all', playlistId: null, label: 'Library' },
   busy: false,
   shuffle: false,
-  repeatMode: 'none'
+  repeatMode: 'none',
+  selectedIds: new Set()
 };
 
 const audio = document.querySelector('#audio');
@@ -31,7 +32,13 @@ const nowCover = document.querySelector('#nowCover');
 const uploadDialog = document.querySelector('#uploadDialog');
 const uploadForm = document.querySelector('#uploadForm');
 const uploadMessage = document.querySelector('#uploadMessage');
+const uploadSubmit = document.querySelector('#uploadSubmit');
+const uploadProgress = document.querySelector('#uploadProgress');
+const uploadProgressFill = document.querySelector('#uploadProgressFill');
+const uploadProgressText = document.querySelector('#uploadProgressText');
+const uploadProgressFile = document.querySelector('#uploadProgressFile');
 const storageStatus = document.querySelector('#storageStatus');
+const storageUsage = document.querySelector('#storageUsage');
 const playlistList = document.querySelector('#playlistList');
 const playlistForm = document.querySelector('#playlistForm');
 const confirmDialog = document.querySelector('#confirmDialog');
@@ -39,6 +46,8 @@ const confirmTitle = document.querySelector('#confirmTitle');
 const confirmMessage = document.querySelector('#confirmMessage');
 const confirmAccept = document.querySelector('#confirmAccept');
 const confirmCancel = document.querySelector('#confirmCancel');
+const selectionCount = document.querySelector('#selectionCount');
+const deleteSelectedBtn = document.querySelector('#deleteSelectedBtn');
 const Icons = {
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>',
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>',
@@ -51,7 +60,8 @@ const Icons = {
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>',
   shuffle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5"></path><path d="M4 20L21 3"></path><path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path></svg>',
   repeatOne: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a3 3 0 0 1 3-3h15"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a3 3 0 0 1-3 3H3"></path><path d="M12 9v6"></path></svg>',
-  repeatAll: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a3 3 0 0 1 3-3h15"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a3 3 0 0 1-3 3H3"></path></svg>'
+  repeatAll: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a3 3 0 0 1 3-3h15"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a3 3 0 0 1-3 3H3"></path></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
 };
 
 function icon(name) {
@@ -119,6 +129,7 @@ function bindEvents() {
   prevBtn.addEventListener('click', () => playRelative(-1));
   nextBtn.addEventListener('click', () => playRelative(1));
   repeatBtn.addEventListener('click', cycleRepeatMode);
+  deleteSelectedBtn.addEventListener('click', deleteSelectedTracks);
   volume.addEventListener('input', () => {
     audio.volume = Number(volume.value);
     updateVolumeValue();
@@ -147,6 +158,51 @@ async function loadStatus() {
   if (storageStatus) {
     storageStatus.textContent = 'Ready';
   }
+
+  await loadStorageUsage();
+}
+
+async function loadStorageUsage() {
+  if (!storageUsage) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/storage/usage');
+    if (!response.ok) {
+      throw new Error('Storage unavailable');
+    }
+
+    const usage = await response.json();
+    if (!usage.configured) {
+      storageUsage.textContent = 'Storage: not configured';
+      return;
+    }
+
+    const used = formatBytes(usage.usedBytes);
+    storageUsage.textContent = usage.limitBytes
+      ? `Storage: ${used} / ${formatBytes(usage.limitBytes)}`
+      : `Storage: ${used} used`;
+  } catch {
+    storageUsage.textContent = 'Storage: unavailable';
+  }
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
 async function loadTracks() {
@@ -156,6 +212,7 @@ async function loadTracks() {
       throw new Error(await response.text());
     }
     state.tracks = await response.json();
+    pruneSelection();
     renderTracks();
   } catch (error) {
     grid.innerHTML = `<div class="empty">${escapeHtml(error.message || 'Could not load tracks.')}</div>`;
@@ -178,6 +235,7 @@ function selectBuiltInView(type, label) {
   state.view = { type, playlistId: null, label: label || 'Library' };
   state.currentIndex = -1;
   setActiveSidebarItem(type, null);
+  clearSelection();
   renderTracks();
 }
 
@@ -190,6 +248,7 @@ function selectPlaylist(playlistId) {
   state.view = { type: 'playlist', playlistId, label: playlist.name };
   state.currentIndex = -1;
   setActiveSidebarItem(null, playlistId);
+  clearSelection();
   renderTracks();
 }
 
@@ -212,6 +271,7 @@ function renderTracks() {
 
   sectionTitle.textContent = state.view.label;
   trackCount.textContent = `${state.filtered.length} ${state.filtered.length === 1 ? 'track' : 'tracks'}`;
+  renderSelectionState();
 
   if (state.filtered.length === 0) {
     grid.innerHTML = `<div class="empty">${escapeHtml(getEmptyMessage())}</div>`;
@@ -219,8 +279,14 @@ function renderTracks() {
   }
 
   const inPlaylist = state.view.type === 'playlist';
-  grid.innerHTML = state.filtered.map((track, index) => `
-    <article class="track-card">
+  grid.innerHTML = state.filtered.map((track, index) => {
+    const isSelected = state.selectedIds.has(track.id);
+    return `
+    <article class="track-card ${isSelected ? 'selected' : ''}">
+      <label class="select-track" title="Select track">
+        <input type="checkbox" data-select="${track.id}" ${isSelected ? 'checked' : ''} aria-label="Select ${escapeHtml(track.title)}">
+        <span>${icon('check')}</span>
+      </label>
       ${track.coverObjectKey
         ? `<img class="cover" src="/api/tracks/${track.id}/cover" alt="">`
         : '<div class="cover"></div>'}
@@ -230,8 +296,14 @@ function renderTracks() {
         <button type="button" class="icon-button" title="Play" aria-label="Play ${escapeHtml(track.title)}" data-play="${index}">${icon('play')}</button>
         <button type="button" class="icon-button" title="${inPlaylist ? 'Remove from playlist' : 'Delete track'}" aria-label="${inPlaylist ? 'Remove from playlist' : 'Delete track'}" data-delete="${track.id}">${icon(inPlaylist ? 'remove' : 'trash')}</button>
       </div>
+      <span class="track-size">${formatBytes(track.size)}</span>
     </article>
-  `).join('');
+  `;
+  }).join('');
+
+  grid.querySelectorAll('[data-select]').forEach(input => {
+    input.addEventListener('change', () => toggleTrackSelection(input.dataset.select, input.checked));
+  });
 
   grid.querySelectorAll('[data-play]').forEach(button => {
     button.addEventListener('click', () => playTrack(Number(button.dataset.play)));
@@ -482,38 +554,109 @@ async function uploadTrack(event) {
     return;
   }
 
+  const sourceFormData = new FormData(uploadForm);
+  const audioFiles = sourceFormData.getAll('audio')
+    .filter(file => file instanceof File && file.size > 0);
+  if (audioFiles.length === 0) {
+    uploadMessage.textContent = 'Choose one or more audio files to upload.';
+    return;
+  }
+
   state.busy = true;
-  uploadMessage.textContent = 'Uploading...';
-  const formData = new FormData(uploadForm);
+  uploadSubmit.disabled = true;
+  const total = audioFiles.length;
   const activePlaylistId = state.view.type === 'playlist' ? state.view.playlistId : null;
+  const createdTracks = [];
+  resetUploadProgress(total);
 
   try {
-    const response = await fetch('/api/tracks', {
-      method: 'POST',
-      body: formData
-    });
+    for (let index = 0; index < audioFiles.length; index += 1) {
+      const file = audioFiles[index];
+      updateUploadProgress(index + 1, total, file.name);
+      uploadMessage.textContent = `Uploading ${index + 1} of ${total}...`;
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new Error(body?.message || 'Upload failed.');
+      const response = await fetch('/api/tracks', {
+        method: 'POST',
+        body: createUploadFormData(sourceFormData, file, total === 1)
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || `Upload failed on ${index + 1} of ${total}.`);
+      }
+
+      const track = await response.json();
+      createdTracks.push(track);
+      upsertTrack(track);
+
+      if (activePlaylistId) {
+        await addTrackToPlaylist(activePlaylistId, track.id);
+      }
     }
 
-    const createdTrack = await response.json();
-    upsertTrack(createdTrack);
-
-    if (activePlaylistId) {
-      await addTrackToPlaylist(activePlaylistId, createdTrack.id);
-    }
-
+    updateUploadProgress(total, total, 'Complete');
     uploadForm.reset();
-    uploadDialog.close();
-    uploadMessage.textContent = '';
+    uploadMessage.textContent = `Uploaded ${createdTracks.length} ${createdTracks.length === 1 ? 'track' : 'tracks'}.`;
     renderPlaylists();
     renderTracks();
+    await loadStorageUsage();
+    window.setTimeout(() => {
+      if (!state.busy) {
+        uploadDialog.close();
+        uploadMessage.textContent = '';
+        hideUploadProgress();
+      }
+    }, 650);
   } catch (error) {
     uploadMessage.textContent = error.message;
   } finally {
     state.busy = false;
+    uploadSubmit.disabled = false;
+  }
+}
+
+function createUploadFormData(sourceFormData, file, includeCover) {
+  const formData = new FormData();
+  formData.append('audio', file, file.name);
+  formData.append('title', includeCover ? String(sourceFormData.get('title') || '') : file.name.replace(/\.[^/.]+$/, ''));
+  formData.append('artist', String(sourceFormData.get('artist') || ''));
+  formData.append('album', String(sourceFormData.get('album') || ''));
+  formData.append('genre', String(sourceFormData.get('genre') || ''));
+
+  const cover = sourceFormData.get('cover');
+  if (includeCover && cover instanceof File && cover.size > 0) {
+    formData.append('cover', cover, cover.name);
+  }
+
+  return formData;
+}
+
+function resetUploadProgress(total) {
+  if (!uploadProgress) {
+    return;
+  }
+
+  uploadProgress.hidden = false;
+  uploadProgressFill.style.width = '0%';
+  uploadProgressText.textContent = `0 of ${total}`;
+  uploadProgressFile.textContent = '';
+}
+
+function updateUploadProgress(current, total, fileName) {
+  if (!uploadProgress) {
+    return;
+  }
+
+  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+  uploadProgress.hidden = false;
+  uploadProgressFill.style.width = `${percent}%`;
+  uploadProgressText.textContent = `${current} of ${total}`;
+  uploadProgressFile.textContent = fileName || '';
+}
+
+function hideUploadProgress() {
+  if (uploadProgress) {
+    uploadProgress.hidden = true;
   }
 }
 
@@ -550,6 +693,46 @@ async function createPlaylist(event) {
   }
 }
 
+function toggleTrackSelection(id, selected) {
+  if (selected) {
+    state.selectedIds.add(id);
+  } else {
+    state.selectedIds.delete(id);
+  }
+
+  renderTracks();
+}
+
+function clearSelection() {
+  if (state.selectedIds.size === 0) {
+    renderSelectionState();
+    return;
+  }
+
+  state.selectedIds.clear();
+  renderSelectionState();
+}
+
+function pruneSelection() {
+  const availableIds = new Set(state.tracks.map(track => track.id));
+  [...state.selectedIds].forEach(id => {
+    if (!availableIds.has(id)) {
+      state.selectedIds.delete(id);
+    }
+  });
+}
+
+function renderSelectionState() {
+  const count = state.selectedIds.size;
+  if (selectionCount) {
+    selectionCount.textContent = `${count} selected`;
+  }
+
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.disabled = count === 0;
+    deleteSelectedBtn.setAttribute('aria-disabled', String(count === 0));
+  }
+}
 async function handleDeleteAction(id) {
   const track = state.tracks.find(item => item.id === id);
   if (!track) {
@@ -583,6 +766,34 @@ async function removeFromPlaylist(trackId, title) {
   }
 }
 
+async function deleteSelectedTracks() {
+  const ids = [...state.selectedIds];
+  if (ids.length === 0) {
+    return;
+  }
+
+  const confirmed = await showConfirmDialog({
+    title: 'Delete selected tracks?',
+    message: `Delete ${ids.length} selected ${ids.length === 1 ? 'track' : 'tracks'} from CloudBeat and all playlists?`,
+    actionText: 'Delete selected'
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  const response = await fetch('/api/tracks/delete', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trackIds: ids })
+  });
+
+  if (response.ok) {
+    const result = await response.json();
+    const deletedIds = new Set(result.deletedIds || ids);
+    removeDeletedTracksFromState(deletedIds);
+    await loadStorageUsage();
+  }
+}
 async function deleteTrack(id, title) {
   const confirmed = await showConfirmDialog({
     title: 'Delete track?',
@@ -595,15 +806,33 @@ async function deleteTrack(id, title) {
 
   const response = await fetch(`/api/tracks/${id}`, { method: 'DELETE' });
   if (response.ok) {
-    state.tracks = state.tracks.filter(track => track.id !== id);
-    state.playlists.forEach(playlist => {
-      playlist.trackIds = playlist.trackIds.filter(trackId => trackId !== id);
-    });
-    renderPlaylists();
-    renderTracks();
+    removeDeletedTracksFromState(new Set([id]));
+    await loadStorageUsage();
   }
 }
 
+function removeDeletedTracksFromState(deletedIds) {
+  state.tracks = state.tracks.filter(track => !deletedIds.has(track.id));
+  state.playlists.forEach(playlist => {
+    playlist.trackIds = playlist.trackIds.filter(trackId => !deletedIds.has(trackId));
+  });
+  deletedIds.forEach(id => state.selectedIds.delete(id));
+
+  const currentTrack = state.filtered[state.currentIndex];
+  if (currentTrack && deletedIds.has(currentTrack.id)) {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    state.currentIndex = -1;
+    nowTitle.textContent = 'Nothing playing';
+    nowArtist.textContent = 'Upload a track to start';
+    nowCover.style.backgroundImage = '';
+    setPlayButtonIcon(false);
+  }
+
+  renderPlaylists();
+  renderTracks();
+}
 function showConfirmDialog({ title, message, actionText }) {
   return new Promise(resolve => {
     confirmTitle.textContent = title;
@@ -665,6 +894,8 @@ function escapeHtml(value) {
 }
 
 init();
+
+
 
 
 

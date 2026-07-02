@@ -1,11 +1,11 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Musicdoni</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/styles.css?v=20260701-9">
+  <link rel="stylesheet" href="/styles.css?v=20260702-4">
 </head>
 <body>
   <div class="shell">
@@ -35,6 +35,7 @@
         </div>
         <div class="top-actions">
           <input id="searchInput" type="search" placeholder="Search songs, artists, albums">
+          <span id="storageUsage" class="storage-usage">Storage: checking...</span>
           <button id="openUpload" class="primary" type="button">Upload</button>
         </div>
       </header>
@@ -51,8 +52,14 @@
 
       <section class="content-grid">
         <div class="section-head">
-          <h2 id="sectionTitle">Library</h2>
-          <span id="trackCount">0 tracks</span>
+          <div>
+            <h2 id="sectionTitle">Library</h2>
+            <span id="trackCount">0 tracks</span>
+          </div>
+          <div class="selection-actions" aria-live="polite">
+            <span id="selectionCount">0 selected</span>
+            <button id="deleteSelectedBtn" type="button" disabled>Delete selected</button>
+          </div>
         </div>
         <div id="trackGrid" class="track-grid"></div>
       </section>
@@ -101,7 +108,7 @@
         <h2>Upload track</h2>
         <button id="closeUpload" type="button" title="Close">Close</button>
       </div>
-      <label>Audio file<input name="audio" type="file" accept="audio/*" required></label>
+      <label>Audio files<input name="audio" type="file" accept="audio/*" multiple required></label>
       <label>Cover art<input name="cover" type="file" accept="image/*"></label>
       <div class="form-row">
         <label>Title<input name="title" autocomplete="off"></label>
@@ -112,6 +119,13 @@
         <label>Genre<input name="genre" autocomplete="off"></label>
       </div>
       <button id="uploadSubmit" class="primary" type="submit">Upload to CloudBeat</button>
+      <div id="uploadProgress" class="upload-progress" hidden>
+        <div class="upload-progress-bar" aria-hidden="true"><span id="uploadProgressFill"></span></div>
+        <div class="upload-progress-meta">
+          <span id="uploadProgressText">0 of 0</span>
+          <span id="uploadProgressFile"></span>
+        </div>
+      </div>
       <p id="uploadMessage"></p>
     </form>
   </dialog>
@@ -129,9 +143,10 @@
     </form>
   </dialog>
 
-  <script src="/app.js?v=20260701-9"></script>
+  <script src="/app.js?v=20260702-3"></script>
 </body>
 </html>
+
 
 
 

@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -100,30 +100,52 @@ public sealed class S3MusicCatalog(
 
     public async Task<bool> DeleteTrackAsync(Guid id, CancellationToken cancellationToken)
     {
+        var deletedIds = await DeleteTracksAsync([id], cancellationToken);
+        return deletedIds.Count > 0;
+    }
+
+    public async Task<IReadOnlyList<Guid>> DeleteTracksAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            var requestedIds = ids.ToHashSet();
             var library = await GetLibraryAsync(cancellationToken);
-            var track = library.Tracks.FirstOrDefault(item => item.Id == id);
-            if (track is null)
+            var tracks = library.Tracks
+                .Where(track => requestedIds.Contains(track.Id))
+                .ToList();
+
+            if (tracks.Count == 0)
             {
-                return false;
+                return [];
             }
 
-            library.Tracks.Remove(track);
+            var deletedIds = tracks.Select(track => track.Id).ToHashSet();
+            library.Tracks.RemoveAll(track => deletedIds.Contains(track.Id));
             foreach (var playlist in library.Playlists)
             {
-                playlist.TrackIds.Remove(id);
+                playlist.TrackIds.RemoveAll(trackId => deletedIds.Contains(trackId));
             }
 
             await SaveLibraryAsync(library, cancellationToken);
-            await storage.DeleteObjectAsync(track.AudioObjectKey, cancellationToken);
-            if (track.CoverObjectKey is not null)
+
+            foreach (var track in tracks)
             {
-                await storage.DeleteObjectAsync(track.CoverObjectKey, cancellationToken);
+                await storage.DeleteObjectAsync(track.AudioObjectKey, cancellationToken);
+                if (track.CoverObjectKey is not null)
+                {
+                    await storage.DeleteObjectAsync(track.CoverObjectKey, cancellationToken);
+                }
             }
 
-            return true;
+            return tracks.Select(track => track.Id).ToList();
         }
         finally
         {

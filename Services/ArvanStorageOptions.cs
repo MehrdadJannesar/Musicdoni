@@ -1,4 +1,4 @@
-namespace Musicdoni.Services;
+﻿namespace Musicdoni.Services;
 
 public sealed class ArvanStorageOptions
 {
@@ -12,5 +12,7 @@ public sealed class ArvanStorageOptions
     public string CatalogKey { get; set; } = "musicdoni/catalog.json";
     public string TracksPrefix { get; set; } = "musicdoni/tracks";
     public string CoversPrefix { get; set; } = "musicdoni/covers";
+    public long? StorageLimitBytes { get; set; }
 }
+
 

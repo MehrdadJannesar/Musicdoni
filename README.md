@@ -4,13 +4,14 @@ Musicdoni is a Spotify-style music player built with ASP.NET Core / .NET 10. It 
 
 ## Features
 
-- Upload audio files and optional cover art.
+- Upload one audio file with optional cover art, or bulk upload multiple audio files at once.
 - Stream tracks through the application from Arvan Cloud storage.
 - Playlist creation and playlist-specific uploads.
 - Delete and remove confirmation with an in-app modal.
 - Player controls for play/pause, previous, next, shuffle, repeat one, repeat all, seek, and volume percentage.
 - Current playback time and total duration display.
 - Cloud-backed catalog stored as JSON in object storage.
+- Bucket storage usage display based on summed object sizes.
 
 ## Requirements
 
@@ -66,7 +67,8 @@ Optional storage paths:
   "ArvanStorage": {
     "CatalogKey": "musicdoni/catalog.json",
     "TracksPrefix": "musicdoni/tracks",
-    "CoversPrefix": "musicdoni/covers"
+    "CoversPrefix": "musicdoni/covers",
+    "StorageLimitBytes": null
   }
 }
 ```
@@ -112,4 +114,5 @@ By default, Musicdoni uses these object keys:
 - The bucket name is the Arvan Object Storage bucket/box name, not the user identifier.
 - The app streams audio through backend endpoints so browser playback can use byte-range requests correctly.
 - Download-manager user agents are blocked, but normal browser media range requests are allowed for playback.
+
 

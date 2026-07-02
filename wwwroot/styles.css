@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: dark;
   --bg: #080a0c;
   --panel: #111417;
@@ -16,6 +16,7 @@
 
 body {
   margin: 0;
+  overflow-x: hidden;
   min-width: 320px;
   min-height: 100vh;
   background: var(--bg);
@@ -138,8 +139,9 @@ input {
 }
 
 .main {
+  min-width: 0;
   padding: 24px 28px 32px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .topbar {
@@ -147,6 +149,7 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+  min-width: 0;
 }
 
 h1, h2, p {
@@ -165,11 +168,15 @@ h1 {
 
 .top-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
   align-items: center;
+  min-width: min(100%, 720px);
 }
 
 .top-actions input {
+  flex: 1 1 260px;
   width: min(34vw, 380px);
 }
 
@@ -231,29 +238,121 @@ h1 {
 
 .section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  gap: 14px;
   margin-bottom: 16px;
+}
+
+.selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.selection-actions button {
+  min-height: 38px;
+  border-radius: 999px;
+  background: rgba(255, 122, 89, .14);
+  border: 1px solid rgba(255, 122, 89, .28);
+  color: #ffb29f;
+  font-weight: 800;
+  padding: 0 16px;
+}
+
+.selection-actions button:hover:not(:disabled) {
+  background: rgba(255, 122, 89, .24);
+  box-shadow: 0 12px 24px rgba(255, 122, 89, .12);
+}
+
+.selection-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
 }
 
 .track-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  align-items: stretch;
   gap: 14px;
 }
 
 .track-card {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   border-radius: 8px;
   background: var(--panel);
   padding: 14px;
   min-height: 284px;
-  transition: transform .16s ease, background .16s ease;
+  transition: transform .16s ease, background .16s ease, outline-color .16s ease, box-shadow .16s ease;
 }
 
 .track-card:hover {
   transform: translateY(-2px);
   background: var(--panel-2);
+}
+
+.track-card.selected {
+  outline: 2px solid rgba(30, 215, 96, .56);
+  box-shadow: 0 0 0 4px rgba(30, 215, 96, .08), 0 18px 34px rgba(0, 0, 0, .22);
+}
+
+.select-track {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--text);
+}
+
+.select-track input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.select-track span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  background: rgba(5, 6, 7, .68);
+  color: transparent;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .24);
+  transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.select-track:hover span,
+.select-track input:focus-visible + span {
+  border-color: rgba(30, 215, 96, .55);
+  transform: scale(1.04);
+}
+
+.select-track input:checked + span {
+  background: var(--green);
+  border-color: transparent;
+  color: #041006;
+}
+
+.select-track svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
 }
 
 .cover {
@@ -275,10 +374,22 @@ h1 {
   font-size: .9rem;
 }
 
+.track-size {
+  display: block;
+  min-height: 18px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.25;
+  text-align: left;
+}
+
 .card-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 14px;
 }
 
 .card-actions button {
@@ -395,6 +506,53 @@ dialog::backdrop {
   gap: 14px;
 }
 
+.upload-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.upload-progress[hidden] {
+  display: none;
+}
+
+.upload-progress-bar {
+  overflow: hidden;
+  height: 9px;
+  border-radius: 999px;
+  background: #0d1012;
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+
+.upload-progress-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+  transition: width .2s ease;
+}
+
+.upload-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: .84rem;
+}
+
+#uploadProgressText {
+  color: var(--text);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+#uploadProgressFile {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
 .dialog-head,
 .form-row {
   display: grid;
@@ -438,13 +596,29 @@ label {
 
   .topbar,
   .top-actions,
-  .hero-band {
+  .hero-band,
+  .section-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .top-actions input {
+  .top-actions {
+    justify-content: stretch;
+    min-width: 0;
+  }
+
+  .top-actions input,
+  .top-actions .primary,
+  .storage-usage {
     width: 100%;
+  }
+
+  .storage-usage {
+    white-space: normal;
+  }
+
+  .selection-actions {
+    justify-content: flex-start;
   }
 
   .signal-bars {
@@ -475,13 +649,22 @@ label {
 
 @media (max-width: 520px) {
   .track-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
+  .hero-band {
+    min-height: 132px;
+    padding: 20px;
+  }
+
+  .hero-band h2 {
+    font-size: 1.85rem;
+  }
+
   .track-card {
-    min-height: 238px;
-    padding: 10px;
+    min-height: 0;
+    padding: 12px;
   }
 
   .form-row {
@@ -855,4 +1038,67 @@ button svg {
 
 .transport button.active:hover {
   background: rgba(30, 215, 96, .2);
+}
+
+.storage-usage {
+  color: var(--muted);
+  font-size: .84rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .player {
+    padding: 12px 14px;
+  }
+
+  .now-playing {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .mini-cover {
+    width: 46px;
+    height: 46px;
+  }
+
+  .transport-buttons {
+    gap: 6px;
+  }
+
+  .transport button:not(.play) {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+  }
+
+  .transport .play {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+  }
+
+  .upload-progress-meta {
+    display: grid;
+  }
+}
+
+@media (max-width: 380px) {
+  .main {
+    padding: 14px 12px;
+  }
+
+  .card-actions {
+    gap: 7px;
+  }
+
+  .icon-button {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+  }
+
+  .seek-row {
+    grid-template-columns: 38px minmax(80px, 1fr) 38px;
+    gap: 7px;
+  }
 }
